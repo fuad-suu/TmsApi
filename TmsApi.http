@@ -1,0 +1,24 @@
+# @TmsApi_HostAddress = http://localhost:5113/api/assessments/results
+@TmsApi_HostAddress = http://localhost:5113/
+
+GET {{TmsApi_HostAddress}}api/assessments/results
+Accept: application/json
+###
+POST {{TmsApi_HostAddress}}api/enrollments
+Content-Type: application/json
+
+{
+  "studentId": "S-001",
+  "courseCode": "CS-101"
+}
+###
+GET {{TmsApi_HostAddress}}api/enrollments
+###
+GET {{TmsApi_HostAddress}}api/error
+###
+Delete {{TmsApi_HostAddress}}api/enrollments/7b18075b
+###
+GET {{TmsApi_HostAddress}}scalar/v1
+###
+GET {{TmsApi_HostAddress}}api/test/deferred
+###
