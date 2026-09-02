@@ -1,6 +1,7 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using TmsApi.Domain.Entities;
 using TmsApi.Infrastructure.Identity;
@@ -73,6 +74,7 @@ public class AuthController : ControllerBase
 
     public record LoginRequest(string Email, string Password);
 
+    [EnableRateLimiting("AuthLimiter")]
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {

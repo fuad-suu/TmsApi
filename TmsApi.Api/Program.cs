@@ -20,6 +20,8 @@ using Microsoft.AspNetCore.Identity;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Authorization;
+using TmsApi.Api.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -93,23 +95,30 @@ builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBeh
 // Configure Rate Limiting Policies
 builder.Services.AddRateLimiter(options =>
 {
-    // Return HTTP 429 Too Many Requests when limits are exceeded
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    // Policy 1: Fixed Window for general public API queries (e.g., Course listings)
+    // Policy 1: Fixed Window for login attempts
+    options.AddFixedWindowLimiter("AuthLimiter", opt =>
+    {
+        opt.PermitLimit = 10;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+
+    // Policy 2: Fixed Window for general public API queries
     options.AddFixedWindowLimiter("fixed-by-ip", opt =>
     {
-        opt.PermitLimit = 60; // Max 60 requests
-        opt.Window = TimeSpan.FromMinutes(1); // Per 1 minute window
-        opt.QueueLimit = 2; // Queue up to 2 extra requests before rejecting
+        opt.PermitLimit = 60;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 2;
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
 
-    // Policy 2: Strict Concurrency Limiter for resource-intensive POST mutations (e.g., Enrollment)
+    // Policy 3: Strict Concurrency Limiter for resource-intensive POST mutations
     options.AddConcurrencyLimiter("strict-concurrency", opt =>
     {
-        opt.PermitLimit = 5; // Max 5 concurrent active requests
-        opt.QueueLimit = 0; // Reject immediately if limits are exceeded
+        opt.PermitLimit = 5;
+        opt.QueueLimit = 0;
     });
 });
 
@@ -190,6 +199,13 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
+// Register Custom Authorization Policy & Handler
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("CanEditCourse", policy =>
+        policy.Requirements.Add(new CourseInstructorRequirement()));
+
+builder.Services.AddSingleton<IAuthorizationHandler, CourseInstructorHandler>();
+
 //================================================================//
 //              start of middleware pipline
 //================================================================//
@@ -218,6 +234,25 @@ app.UseHttpsRedirection();
 
 app.UseRouting();
 app.UseCors("TmsClient");
+
+// Security Response Headers Middleware
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Append("X-Frame-Options", "DENY");
+    context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+
+    // Do not attach strict CSP to Scalar UI or OpenAPI endpoints in Development
+    if (!context.Request.Path.StartsWithSegments("/scalar") &&
+        !context.Request.Path.StartsWithSegments("/openapi"))
+    {
+        context.Response.Headers.Append(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';");
+    }
+
+    await next();
+});
 
 // Standard ASP.NET Core Auth pipeline (prepares context.User for Module 12)
 app.UseAuthentication();

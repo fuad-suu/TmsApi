@@ -1,9 +1,11 @@
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using TmsApi.Infrastructure.Persistence;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using TmsApi.Application.DTOs; // Make sure your DTO namespace is imported!
+using TmsApi.Infrastructure.Persistence;
 
 namespace TmsApi.Api.Controllers.V2;
 
@@ -11,7 +13,9 @@ namespace TmsApi.Api.Controllers.V2;
 [Route("api/v{version:apiVersion}/courses")]
 [ApiVersion("2.0")]
 [EnableRateLimiting("fixed-by-ip")] // Enables 60 requests/min rate limiting
-public class CoursesController(TmsDbContext context) : ControllerBase
+public class CoursesController(
+    TmsDbContext context,
+    IAuthorizationService authorizationService) : ControllerBase
 {
     [HttpGet]
     [OutputCache(PolicyName = "CoursesCachePolicy")] // Caching added here!
@@ -36,6 +40,7 @@ public class CoursesController(TmsDbContext context) : ControllerBase
                 c.Title,
                 c.Code,
                 c.MaxCapacity,
+                c.InstructorId,
                 EnrollmentCount = c.Enrollments.Count
             })
             .ToListAsync(ct);
@@ -66,7 +71,38 @@ public class CoursesController(TmsDbContext context) : ControllerBase
         });
     }
 
+    [HttpPut("{id:int}")]
+    [Authorize(Roles = "Instructor, Admin")]
+    public async Task<IActionResult> UpdateCourse(int id, [FromBody] UpdateCourseDto dto, CancellationToken ct)
+    {
+        var course = await context.Courses.FindAsync([id], ct);
+        if (course is null)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Course Not Found",
+                Detail = $"Course with ID {id} was not found."
+            });
+        }
+
+        // Evaluate Resource-Based Ownership Policy
+        var authResult = await authorizationService.AuthorizeAsync(User, course, "CanEditCourse");
+        if (!authResult.Succeeded)
+        {
+            // HTTP 403 Forbidden when caller doesn't own the resource
+            return Forbid();
+        }
+
+        course.Title = dto.Title;
+        course.MaxCapacity = dto.MaxCapacity;
+        await context.SaveChangesAsync(ct);
+
+        return NoContent();
+    }
+
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteCourse(int id, CancellationToken ct)
     {
         var course = await context.Courses
