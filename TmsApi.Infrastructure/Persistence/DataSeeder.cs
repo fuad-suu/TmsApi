@@ -56,7 +56,14 @@ public static class DataSeeder
                     Name = "Tigist Assefa",
                     GPA = 3.9m,
                     IsActive = true
-                }
+                },
+                new()
+                {
+                    RegistrationNumber = "ETS0003/14",
+                    Name = "Kebede Tassew",
+                    GPA = 3.7m,
+                    IsActive = true
+                },
             };
 
             await context.Students.AddRangeAsync(students, ct);
