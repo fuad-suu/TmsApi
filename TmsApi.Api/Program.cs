@@ -22,13 +22,24 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authorization;
 using TmsApi.Api.Authorization;
+using System.Threading.Channels;
+using TmsApi.Application.Notifications;
+using TmsApi.Application.Transcripts;
+using TmsApi.Infrastructure.Transcripts;
+using TmsApi.Infrastructure.Workers;
+using TmsApi.Api.Notifications;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<AuditLogFilter>();
+})
+.AddJsonOptions(options =>
+{
+    options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 });
+
 
 // Configure OpenAPI v1 & v2 documents
 builder.Services.AddOpenApi("v1", options =>
@@ -120,6 +131,14 @@ builder.Services.AddRateLimiter(options =>
         opt.PermitLimit = 5;
         opt.QueueLimit = 0;
     });
+
+    // Policy 4: Fixed Window or Concurrency for Transcripts
+    options.AddFixedWindowLimiter("transcripts", opt =>
+    {
+        opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
 });
 
 // Configure Output Caching
@@ -205,6 +224,17 @@ builder.Services.AddAuthorizationBuilder()
         policy.Requirements.Add(new CourseInstructorRequirement()));
 
 builder.Services.AddSingleton<IAuthorizationHandler, CourseInstructorHandler>();
+
+// Register Status Store, Bounded Channel & Background Worker (Session 3)
+builder.Services.AddSingleton<ITranscriptStatusStore, InMemoryTranscriptStatusStore>();
+builder.Services.AddSingleton(Channel.CreateBounded<TranscriptRequest>(new BoundedChannelOptions(100)
+{
+    FullMode = BoundedChannelFullMode.Wait
+}));
+builder.Services.AddHostedService<TranscriptWorker>();
+
+// Register SignalR Notification Implementation
+builder.Services.AddSingleton<ITranscriptNotificationService, SignalRTranscriptNotificationService>();
 
 //================================================================//
 //              start of middleware pipline
